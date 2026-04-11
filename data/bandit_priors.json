@@ -1,0 +1,427 @@
+{
+  "version": "1.0",
+  "service": "atg_swing",
+  "generated_at": "2026-04-11",
+  "prior_trades": 50,
+  "context_dim": 32,
+  "alpha": 1.0,
+  "setup_types": [
+    "BREAKOUT",
+    "PULLBACK",
+    "EARNINGS_DRIFT",
+    "SECTOR_ROTATION",
+    "MA_BOUNCE",
+    "BASE_BREAKOUT"
+  ],
+  "stop_mults": [
+    1.0,
+    1.2,
+    1.4,
+    1.6,
+    1.8,
+    2.0,
+    2.2,
+    2.4,
+    2.6,
+    2.8,
+    3.0
+  ],
+  "arms": {
+    "0": {
+      "setup_type": "BREAKOUT",
+      "stop_mult": 1.0,
+      "stop_idx": 0,
+      "bias": 0.021
+    },
+    "1": {
+      "setup_type": "BREAKOUT",
+      "stop_mult": 1.2,
+      "stop_idx": 1,
+      "bias": 0.031
+    },
+    "2": {
+      "setup_type": "BREAKOUT",
+      "stop_mult": 1.4,
+      "stop_idx": 2,
+      "bias": 0.041
+    },
+    "3": {
+      "setup_type": "BREAKOUT",
+      "stop_mult": 1.6,
+      "stop_idx": 3,
+      "bias": 0.041
+    },
+    "4": {
+      "setup_type": "BREAKOUT",
+      "stop_mult": 1.8,
+      "stop_idx": 4,
+      "bias": 0.056
+    },
+    "5": {
+      "setup_type": "BREAKOUT",
+      "stop_mult": 2.0,
+      "stop_idx": 5,
+      "bias": 0.061
+    },
+    "6": {
+      "setup_type": "BREAKOUT",
+      "stop_mult": 2.2,
+      "stop_idx": 6,
+      "bias": 0.056
+    },
+    "7": {
+      "setup_type": "BREAKOUT",
+      "stop_mult": 2.4,
+      "stop_idx": 7,
+      "bias": 0.051
+    },
+    "8": {
+      "setup_type": "BREAKOUT",
+      "stop_mult": 2.6,
+      "stop_idx": 8,
+      "bias": 0.046
+    },
+    "9": {
+      "setup_type": "BREAKOUT",
+      "stop_mult": 2.8,
+      "stop_idx": 9,
+      "bias": 0.046
+    },
+    "10": {
+      "setup_type": "BREAKOUT",
+      "stop_mult": 3.0,
+      "stop_idx": 10,
+      "bias": 0.041
+    },
+    "11": {
+      "setup_type": "PULLBACK",
+      "stop_mult": 1.0,
+      "stop_idx": 0,
+      "bias": 0.015
+    },
+    "12": {
+      "setup_type": "PULLBACK",
+      "stop_mult": 1.2,
+      "stop_idx": 1,
+      "bias": 0.025
+    },
+    "13": {
+      "setup_type": "PULLBACK",
+      "stop_mult": 1.4,
+      "stop_idx": 2,
+      "bias": 0.035
+    },
+    "14": {
+      "setup_type": "PULLBACK",
+      "stop_mult": 1.6,
+      "stop_idx": 3,
+      "bias": 0.035
+    },
+    "15": {
+      "setup_type": "PULLBACK",
+      "stop_mult": 1.8,
+      "stop_idx": 4,
+      "bias": 0.05
+    },
+    "16": {
+      "setup_type": "PULLBACK",
+      "stop_mult": 2.0,
+      "stop_idx": 5,
+      "bias": 0.055
+    },
+    "17": {
+      "setup_type": "PULLBACK",
+      "stop_mult": 2.2,
+      "stop_idx": 6,
+      "bias": 0.05
+    },
+    "18": {
+      "setup_type": "PULLBACK",
+      "stop_mult": 2.4,
+      "stop_idx": 7,
+      "bias": 0.045
+    },
+    "19": {
+      "setup_type": "PULLBACK",
+      "stop_mult": 2.6,
+      "stop_idx": 8,
+      "bias": 0.04
+    },
+    "20": {
+      "setup_type": "PULLBACK",
+      "stop_mult": 2.8,
+      "stop_idx": 9,
+      "bias": 0.04
+    },
+    "21": {
+      "setup_type": "PULLBACK",
+      "stop_mult": 3.0,
+      "stop_idx": 10,
+      "bias": 0.035
+    },
+    "22": {
+      "setup_type": "EARNINGS_DRIFT",
+      "stop_mult": 1.0,
+      "stop_idx": 0,
+      "bias": 0.028
+    },
+    "23": {
+      "setup_type": "EARNINGS_DRIFT",
+      "stop_mult": 1.2,
+      "stop_idx": 1,
+      "bias": 0.038
+    },
+    "24": {
+      "setup_type": "EARNINGS_DRIFT",
+      "stop_mult": 1.4,
+      "stop_idx": 2,
+      "bias": 0.048
+    },
+    "25": {
+      "setup_type": "EARNINGS_DRIFT",
+      "stop_mult": 1.6,
+      "stop_idx": 3,
+      "bias": 0.048
+    },
+    "26": {
+      "setup_type": "EARNINGS_DRIFT",
+      "stop_mult": 1.8,
+      "stop_idx": 4,
+      "bias": 0.063
+    },
+    "27": {
+      "setup_type": "EARNINGS_DRIFT",
+      "stop_mult": 2.0,
+      "stop_idx": 5,
+      "bias": 0.068
+    },
+    "28": {
+      "setup_type": "EARNINGS_DRIFT",
+      "stop_mult": 2.2,
+      "stop_idx": 6,
+      "bias": 0.063
+    },
+    "29": {
+      "setup_type": "EARNINGS_DRIFT",
+      "stop_mult": 2.4,
+      "stop_idx": 7,
+      "bias": 0.058
+    },
+    "30": {
+      "setup_type": "EARNINGS_DRIFT",
+      "stop_mult": 2.6,
+      "stop_idx": 8,
+      "bias": 0.053
+    },
+    "31": {
+      "setup_type": "EARNINGS_DRIFT",
+      "stop_mult": 2.8,
+      "stop_idx": 9,
+      "bias": 0.053
+    },
+    "32": {
+      "setup_type": "EARNINGS_DRIFT",
+      "stop_mult": 3.0,
+      "stop_idx": 10,
+      "bias": 0.048
+    },
+    "33": {
+      "setup_type": "SECTOR_ROTATION",
+      "stop_mult": 1.0,
+      "stop_idx": 0,
+      "bias": 0.001
+    },
+    "34": {
+      "setup_type": "SECTOR_ROTATION",
+      "stop_mult": 1.2,
+      "stop_idx": 1,
+      "bias": 0.011
+    },
+    "35": {
+      "setup_type": "SECTOR_ROTATION",
+      "stop_mult": 1.4,
+      "stop_idx": 2,
+      "bias": 0.021
+    },
+    "36": {
+      "setup_type": "SECTOR_ROTATION",
+      "stop_mult": 1.6,
+      "stop_idx": 3,
+      "bias": 0.021
+    },
+    "37": {
+      "setup_type": "SECTOR_ROTATION",
+      "stop_mult": 1.8,
+      "stop_idx": 4,
+      "bias": 0.036
+    },
+    "38": {
+      "setup_type": "SECTOR_ROTATION",
+      "stop_mult": 2.0,
+      "stop_idx": 5,
+      "bias": 0.041
+    },
+    "39": {
+      "setup_type": "SECTOR_ROTATION",
+      "stop_mult": 2.2,
+      "stop_idx": 6,
+      "bias": 0.036
+    },
+    "40": {
+      "setup_type": "SECTOR_ROTATION",
+      "stop_mult": 2.4,
+      "stop_idx": 7,
+      "bias": 0.031
+    },
+    "41": {
+      "setup_type": "SECTOR_ROTATION",
+      "stop_mult": 2.6,
+      "stop_idx": 8,
+      "bias": 0.026
+    },
+    "42": {
+      "setup_type": "SECTOR_ROTATION",
+      "stop_mult": 2.8,
+      "stop_idx": 9,
+      "bias": 0.026
+    },
+    "43": {
+      "setup_type": "SECTOR_ROTATION",
+      "stop_mult": 3.0,
+      "stop_idx": 10,
+      "bias": 0.021
+    },
+    "44": {
+      "setup_type": "MA_BOUNCE",
+      "stop_mult": 1.0,
+      "stop_idx": 0,
+      "bias": 0.016
+    },
+    "45": {
+      "setup_type": "MA_BOUNCE",
+      "stop_mult": 1.2,
+      "stop_idx": 1,
+      "bias": 0.026
+    },
+    "46": {
+      "setup_type": "MA_BOUNCE",
+      "stop_mult": 1.4,
+      "stop_idx": 2,
+      "bias": 0.036
+    },
+    "47": {
+      "setup_type": "MA_BOUNCE",
+      "stop_mult": 1.6,
+      "stop_idx": 3,
+      "bias": 0.036
+    },
+    "48": {
+      "setup_type": "MA_BOUNCE",
+      "stop_mult": 1.8,
+      "stop_idx": 4,
+      "bias": 0.051
+    },
+    "49": {
+      "setup_type": "MA_BOUNCE",
+      "stop_mult": 2.0,
+      "stop_idx": 5,
+      "bias": 0.056
+    },
+    "50": {
+      "setup_type": "MA_BOUNCE",
+      "stop_mult": 2.2,
+      "stop_idx": 6,
+      "bias": 0.051
+    },
+    "51": {
+      "setup_type": "MA_BOUNCE",
+      "stop_mult": 2.4,
+      "stop_idx": 7,
+      "bias": 0.046
+    },
+    "52": {
+      "setup_type": "MA_BOUNCE",
+      "stop_mult": 2.6,
+      "stop_idx": 8,
+      "bias": 0.041
+    },
+    "53": {
+      "setup_type": "MA_BOUNCE",
+      "stop_mult": 2.8,
+      "stop_idx": 9,
+      "bias": 0.041
+    },
+    "54": {
+      "setup_type": "MA_BOUNCE",
+      "stop_mult": 3.0,
+      "stop_idx": 10,
+      "bias": 0.036
+    },
+    "55": {
+      "setup_type": "BASE_BREAKOUT",
+      "stop_mult": 1.0,
+      "stop_idx": 0,
+      "bias": 0.02
+    },
+    "56": {
+      "setup_type": "BASE_BREAKOUT",
+      "stop_mult": 1.2,
+      "stop_idx": 1,
+      "bias": 0.03
+    },
+    "57": {
+      "setup_type": "BASE_BREAKOUT",
+      "stop_mult": 1.4,
+      "stop_idx": 2,
+      "bias": 0.04
+    },
+    "58": {
+      "setup_type": "BASE_BREAKOUT",
+      "stop_mult": 1.6,
+      "stop_idx": 3,
+      "bias": 0.04
+    },
+    "59": {
+      "setup_type": "BASE_BREAKOUT",
+      "stop_mult": 1.8,
+      "stop_idx": 4,
+      "bias": 0.055
+    },
+    "60": {
+      "setup_type": "BASE_BREAKOUT",
+      "stop_mult": 2.0,
+      "stop_idx": 5,
+      "bias": 0.06
+    },
+    "61": {
+      "setup_type": "BASE_BREAKOUT",
+      "stop_mult": 2.2,
+      "stop_idx": 6,
+      "bias": 0.055
+    },
+    "62": {
+      "setup_type": "BASE_BREAKOUT",
+      "stop_mult": 2.4,
+      "stop_idx": 7,
+      "bias": 0.05
+    },
+    "63": {
+      "setup_type": "BASE_BREAKOUT",
+      "stop_mult": 2.6,
+      "stop_idx": 8,
+      "bias": 0.045
+    },
+    "64": {
+      "setup_type": "BASE_BREAKOUT",
+      "stop_mult": 2.8,
+      "stop_idx": 9,
+      "bias": 0.045
+    },
+    "65": {
+      "setup_type": "BASE_BREAKOUT",
+      "stop_mult": 3.0,
+      "stop_idx": 10,
+      "bias": 0.04
+    }
+  }
+}

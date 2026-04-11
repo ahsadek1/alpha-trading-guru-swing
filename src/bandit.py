@@ -51,10 +51,61 @@ class AutonomousSwingBandit:
         self.arm_rewards  = np.zeros(self.n_arms, dtype=float)
         self.win_rates    = np.zeros(self.n_arms, dtype=float)
 
+        # Warm-start: bias arms toward historically optimal setups and stop multipliers
+        self._load_warmstart_priors()
+
         log.info(
             "AutonomousSwingBandit v3 initialized | arms=%d (%d setup types × %d stop mults)",
             self.n_arms, NUM_SETUP_TYPES, NUM_STOP_MULTIPLIERS,
         )
+
+    def _load_warmstart_priors(self) -> None:
+        """
+        Load warm-start biases from data/bandit_priors.json and inject into
+        LinUCB A and b matrices as virtual trades.
+
+        Formula (per Omni spec):
+            A[arm] = alpha * eye(dim) + PRIOR_TRADES * eye(dim)
+            b[arm] = bias * PRIOR_TRADES * ones(dim)
+
+        Called once at __init__. If priors file missing/corrupt → silent no-op,
+        A/b remain at default (current behavior preserved).
+        Subsequent load_state() calls with real DB data OVERWRITE these matrices.
+        """
+        import json, os
+        priors_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "data", "bandit_priors.json"
+        )
+        try:
+            with open(priors_path) as f:
+                priors = json.load(f)
+
+            prior_trades = int(priors.get("prior_trades", 50))
+            arm_cfg      = priors.get("arms", {})
+            eye          = np.eye(self.context_dim)
+            ones         = np.ones(self.context_dim)
+            applied      = 0
+
+            for arm_str, cfg in arm_cfg.items():
+                arm_idx = int(arm_str)
+                if arm_idx >= self.n_arms:
+                    continue
+                bias = float(cfg.get("bias", 0.0))
+                # Omni spec: A[arm] = alpha*eye + PRIOR_TRADES*eye; b[arm] = bias*PRIOR_TRADES*ones
+                self.A[arm_idx] = self.alpha * eye + prior_trades * eye
+                self.b[arm_idx] = bias * prior_trades * ones
+                applied += 1
+
+            log.info(
+                "Bandit warm-start loaded: %d/%d arms primed (prior_trades=%d)",
+                applied, self.n_arms, prior_trades,
+            )
+        except FileNotFoundError:
+            log.debug("No bandit_priors.json at %s — using uniform prior", priors_path)
+        except Exception as e:
+            log.warning("Bandit warm-start failed (non-fatal, uniform prior used): %s", e)
+
 
     def select_arm(self, context: np.ndarray) -> int:
         """
