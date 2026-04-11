@@ -1,0 +1,63 @@
+{
+  "total_return_pct": 16.88,
+  "annualized_return": 3.38,
+  "final_equity": 116875.9,
+  "total_pnl": 16875.9,
+  "total_trades": 48,
+  "win_rate": 50.0,
+  "avg_win_pct": 13.76,
+  "avg_loss_pct": -4.56,
+  "max_drawdown_pct": 2.29,
+  "sharpe_ratio": 0.94,
+  "profit_factor": 2.56,
+  "avg_hold_days": 25.7,
+  "yearly": {
+    "2020": {
+      "trades": 2,
+      "wins": 2,
+      "win_rate": 100.0,
+      "pnl_dollar": 3827.77,
+      "avg_pnl": 26.95
+    },
+    "2021": {
+      "trades": 12,
+      "wins": 7,
+      "win_rate": 58.3,
+      "pnl_dollar": 4907.36,
+      "avg_pnl": 4.03
+    },
+    "2023": {
+      "trades": 8,
+      "wins": 5,
+      "win_rate": 62.5,
+      "pnl_dollar": 5037.46,
+      "avg_pnl": 6.18
+    },
+    "2024": {
+      "trades": 19,
+      "wins": 7,
+      "win_rate": 36.8,
+      "pnl_dollar": 3360.04,
+      "avg_pnl": 4.51
+    },
+    "2025": {
+      "trades": 7,
+      "wins": 3,
+      "win_rate": 42.9,
+      "pnl_dollar": -256.73,
+      "avg_pnl": -2.34
+    }
+  },
+  "by_setup": {
+    "BREAKOUT": {
+      "count": 47,
+      "win_rate": 0.489,
+      "avg_pnl": 4.605
+    },
+    "BASE_BREAKOUT": {
+      "count": 1,
+      "win_rate": 1.0,
+      "avg_pnl": 4.564
+    }
+  }
+}
