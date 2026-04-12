@@ -29,6 +29,11 @@ AHMED_DM     = os.getenv("TELEGRAM_AHMED_ID",  "8573754783")
 GROUP_ID     = os.getenv("TELEGRAM_GROUP_ID",  "-5130564161")
 
 STOP_LOSS_PCT   = float(os.getenv("WATCHDOG_STOP_LOSS_PCT",  "8.0"))
+CAPITAL_ROUTER_URL = os.getenv("CAPITAL_ROUTER_URL", "")
+SYSTEM_ID          = os.getenv("SYSTEM_ID", "ATG_SWING")
+_CR_PNL_COOLDOWN_S = 60
+_last_cr_pnl_report: float = 0.0
+
 POLL_INTERVAL_S = int(os.getenv("WATCHDOG_POLL_INTERVAL_S",  "60"))
 RESTART_DELAY_S = int(os.getenv("WATCHDOG_RESTART_DELAY_S",  "10"))
 
@@ -103,6 +108,26 @@ def _telegram_send(message: str):
             log.warning("Telegram send error: %s", e)
 
 
+def _report_pnl_to_cr(total_unrealized_pnl: float) -> None:
+    """Step 54: report unrealized P&L to Capital Router every watchdog cycle (best-effort)."""
+    global _last_cr_pnl_report
+    now = time.time()
+    if not CAPITAL_ROUTER_URL or now - _last_cr_pnl_report < _CR_PNL_COOLDOWN_S:
+        return
+    try:
+        payload = json.dumps({"system": SYSTEM_ID, "pnl": round(total_unrealized_pnl, 2)}).encode()
+        req = urllib.request.Request(
+            f"{CAPITAL_ROUTER_URL.rstrip('/')}/report_pnl",
+            data=payload, method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=4):
+            _last_cr_pnl_report = now
+            log.debug("CR pnl synced: unrealized=$%.2f", total_unrealized_pnl)
+    except Exception as e:
+        log.debug("CR pnl sync non-critical error: %s", e)
+
+
 def _check_and_enforce():
     """Check positions. Only attempts close during market hours."""
     if not _is_market_open():
@@ -113,6 +138,7 @@ def _check_and_enforce():
     if not positions:
         return
 
+    total_unrealized_pnl = 0.0  # Step 54
     for pos in positions:
         try:
             symbol      = pos.get("symbol", "UNKNOWN").upper()
@@ -122,6 +148,8 @@ def _check_and_enforce():
             cur_price   = float(pos.get("current_price", 0))
             unreal_pl   = float(pos.get("unrealized_pl", 0))
             unreal_plpc = float(pos.get("unrealized_plpc", 0)) * 100
+
+            total_unrealized_pnl += unreal_pl  # Step 54
 
             if unreal_plpc > -STOP_LOSS_PCT:
                 continue
@@ -151,6 +179,8 @@ def _check_and_enforce():
 
         except Exception as e:
             log.error("Watchdog error on %s: %s", pos.get("symbol", "?"), e)
+
+    _report_pnl_to_cr(total_unrealized_pnl)  # Step 54
 
 
 def _watchdog_loop():
