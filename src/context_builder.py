@@ -291,7 +291,9 @@ def build_context(
             daily   = ticker.history(period="300d", interval="1d")
             monthly = ticker.history(period="24mo", interval="1mo")
         else:
-            ticker = None  # Alpaca succeeded — yfinance only needed for earnings/fundamentals
+            # FIX [F8]: Alpaca for price data; yfinance still needed for fundamentals.
+            # NEVER set ticker = None — indices 14-17, 23-25, 31 all need ticker.info/calendar.
+            ticker = yf.Ticker(symbol)
 
         if weekly.empty or daily.empty:
             log.warning("No price data for %s (Alpaca + yfinance both failed)", symbol)
