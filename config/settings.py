@@ -34,7 +34,8 @@ CAPITAL_ROUTER_NAME = "ATG_SWING"   # registered system name in Capital Router
 
 # ── Capital & Risk ────────────────────────────────────────────────────────────
 INITIAL_CAPITAL    = float(os.getenv("INITIAL_CAPITAL",    "100000"))
-MAX_POSITIONS      = int(os.getenv("MAX_POSITIONS",        "8"))
+# FIX [F26]: MAX_POSITIONS must match nexus-alpha execute_endpoint.py. Set via env var.
+MAX_POSITIONS      = int(os.getenv("MAX_POSITIONS",        "3"))  # unified default: 3
 RISK_PER_TRADE_PCT = float(os.getenv("RISK_PER_TRADE_PCT", "0.01"))   # 1% per trade
 MAX_SECTOR_PCT     = float(os.getenv("MAX_SECTOR_PCT",     "0.25"))   # 25% per sector
 MAX_HOLD_DAYS      = int(os.getenv("MAX_HOLD_DAYS",        "42"))     # 6 weeks hard stop
@@ -54,7 +55,8 @@ VIX_SPIKE_THRESHOLD   = float(os.getenv("VIX_SPIKE_THRESHOLD", "3.0"))
 MIN_MARKET_BREADTH    = float(os.getenv("MIN_MARKET_BREADTH",  "45"))
 
 # ── Dynamic Exit Management ───────────────────────────────────────────────────
-TIME_STOP_DAYS          = int(os.getenv("TIME_STOP_DAYS",           "10"))
+# FIX [F29-PENDING]: Ahmed confirm: extend to 21? Backtest shows 10d kills 54% of trades.
+TIME_STOP_DAYS          = int(os.getenv("TIME_STOP_DAYS",           "10"))  # TODO: Ahmed to set to 21
 BREAKEVEN_TRIGGER_ATR   = float(os.getenv("BREAKEVEN_TRIGGER_ATR",  "1.0"))
 TRAILING_ACTIVATION_PCT = float(os.getenv("TRAILING_ACTIVATION_PCT","0.08"))
 TRAILING_ATR_MULTIPLE   = float(os.getenv("TRAILING_ATR_MULTIPLE",  "2.0"))
