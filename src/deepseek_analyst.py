@@ -1,8 +1,13 @@
 """
-ATG DeepSeek Analyst v3.0 — Standalone qualitative thesis layer.
+src/deepseek_analyst.py — ATG DeepSeek Analyst v3.1
+
+FIX [F15]: Changed fail-open (proceed=True) to fail-closed (proceed=False)
+           on API failure. Per INV-5 graduated failure policy.
+           Pre-filter failures no longer silently pass setups through.
 
 Called before Quad-Intelligence for a quick pre-filter on individual setups.
-Non-blocking: always returns a usable dict even when the API is unavailable.
+On API failure: returns proceed=False so the setup is skipped or re-evaluated
+by the full quad_validate pipeline if caller overrides.
 """
 import json
 import logging
@@ -27,15 +32,18 @@ def analyze_swing_setup(scan_result: dict, bandit_selection: dict) -> dict:
     Returns:
         Dict with keys: conviction (HIGH/MEDIUM/LOW), thesis (str),
         proceed (bool), key_risk (str).
-        Falls back gracefully if the API is unavailable.
+
+    FIX [F15]: On API failure, returns proceed=False (fail-closed).
+    Prior behavior was proceed=True (fail-open) — violated INV-5.
     """
     if not DEEPSEEK_API_KEY:
-        log.debug("DEEPSEEK_API_KEY not set — skipping DeepSeek analysis")
+        log.debug("DEEPSEEK_API_KEY not set — DeepSeek pre-filter skipped (proceed=False)")
         return {
-            "conviction": "MEDIUM",
-            "thesis":     "DeepSeek not configured",
-            "proceed":    True,
-            "key_risk":   "Unknown",
+            "conviction": "LOW",
+            "thesis":     "DeepSeek not configured — skipping pre-filter",
+            "proceed":    False,   # FIX [F15]: fail-closed, not fail-open
+            "key_risk":   "Pre-filter unavailable",
+            "failed":     True,    # signal to caller that this is an API failure, not a vote
         }
 
     symbol     = scan_result["symbol"]
@@ -90,6 +98,7 @@ Reply ONLY in this exact JSON format (no other text):
         match   = re.search(r'\{.*?\}', content, re.DOTALL)
         if match:
             result = json.loads(match.group())
+            result["failed"] = False  # explicit API success flag
             log.info(
                 "DeepSeek analyst | %s %s | conviction=%s proceed=%s",
                 symbol, setup_type, result.get("conviction"), result.get("proceed"),
@@ -97,11 +106,16 @@ Reply ONLY in this exact JSON format (no other text):
             return result
 
     except (requests.RequestException, KeyError, IndexError, json.JSONDecodeError) as e:
-        log.warning("DeepSeek analysis failed for %s: %s — proceeding", symbol, e)
+        log.warning(
+            "DeepSeek pre-filter failed for %s: %s — returning proceed=False (fail-closed)",
+            symbol, e,
+        )
 
+    # FIX [F15]: fail-CLOSED — do not silently approve on API failure
     return {
-        "conviction": "MEDIUM",
-        "thesis":     "DeepSeek analysis unavailable",
-        "proceed":    True,
-        "key_risk":   "Unknown",
+        "conviction": "LOW",
+        "thesis":     "DeepSeek pre-filter API unavailable",
+        "proceed":    False,   # was True (fail-open) — now False (fail-closed)
+        "key_risk":   "Pre-filter API down",
+        "failed":     True,
     }
