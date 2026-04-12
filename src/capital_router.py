@@ -21,11 +21,14 @@ _BASE   = CAPITAL_ROUTER_URL.rstrip("/") if CAPITAL_ROUTER_URL else ""
 _TIMEOUT = 10
 
 
-def request_allocation(symbol: str, amount: float) -> Tuple[bool, float, str]:
+def request_allocation(symbol: str, amount: float,
+                        vix: float = 20.0, spread_pct: float = 0.0,
+                        open_symbols: list = None) -> Tuple[bool, float, str]:
     """
     Request capital allocation. HARD GATE — returns (False, 0.0, "") on denial/error.
     Caller MUST check bool before placing any order.
     Returns (approved, approved_amount, trade_id).
+    Optional risk context: vix, spread_pct, open_symbols — enables CR RiskEngine scoring.
     """
     if not _BASE:
         log.warning("[CR] No URL configured — trade blocked")
@@ -34,10 +37,13 @@ def request_allocation(symbol: str, amount: float) -> Tuple[bool, float, str]:
     trade_id = str(uuid.uuid4())
     try:
         r = requests.post(f"{_BASE}/allocate", json={
-            "system":   SYSTEM,
-            "symbol":   symbol.upper(),
-            "amount":   amount,
-            "trade_id": trade_id,
+            "system":      SYSTEM,
+            "symbol":      symbol.upper(),
+            "amount":      amount,
+            "trade_id":    trade_id,
+            "vix":         vix,
+            "spread_pct":  spread_pct,
+            "open_symbols": open_symbols or [],
         }, timeout=_TIMEOUT)
 
         if r.status_code == 200:
