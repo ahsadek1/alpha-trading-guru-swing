@@ -335,6 +335,57 @@ def _place_sell(symbol: str, shares: int, order_type: str = "market",
     return _alpaca_post("/v2/orders", body)
 
 
+def _wait_for_fill_price(order_id: str, fallback_price: float, timeout_s: int = 30) -> float:
+    """
+    FIX [F5]: Poll Alpaca for actual fill price after order submission.
+    
+    A limit/market sell order returns filled_avg_price=null immediately.
+    This function polls until the order is filled or timeout expires.
+    
+    Args:
+        order_id     : Alpaca order ID to poll.
+        fallback_price: price to use if order_id empty or timeout reached.
+        timeout_s    : maximum seconds to wait for fill confirmation.
+    
+    Returns:
+        Actual filled_avg_price, or fallback_price on timeout/error.
+    """
+    import time
+    if not order_id:
+        log.warning("_wait_for_fill_price: no order_id — using fallback price %.2f", fallback_price)
+        return fallback_price
+    
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        try:
+            resp = _req.get(
+                f"{ALPACA_BASE}/v2/orders/{order_id}",
+                headers=_HEADERS,
+                timeout=5,
+            )
+            if resp.status_code == 200:
+                order_data = resp.json()
+                status     = order_data.get("status", "")
+                filled_avg = order_data.get("filled_avg_price")
+                if status == "filled" and filled_avg:
+                    fill_price = float(filled_avg)
+                    log.info("Fill confirmed: order=%s price=%.2f", order_id[:8], fill_price)
+                    return fill_price
+                elif status in ("canceled", "rejected", "expired"):
+                    log.warning("Order %s %s — using fallback price", order_id[:8], status)
+                    return fallback_price
+            time.sleep(2)
+        except Exception as e:
+            log.debug("Fill poll error (retrying): %s", e)
+            time.sleep(2)
+    
+    log.warning(
+        "Fill confirmation timeout after %ds for order %s — using fallback %.2f",
+        timeout_s, order_id[:8], fallback_price,
+    )
+    return fallback_price
+
+
 def _close_position(
     pos: dict,
     current_price: float,
@@ -363,7 +414,10 @@ def _close_position(
 
     try:
         order      = _place_sell(symbol, shares)
-        exit_price = float(order.get("filled_avg_price") or current_price)
+        # FIX [F5]: Poll for actual fill price instead of using pre-sell current_price
+        # filled_avg_price is null immediately after order submission for limit orders
+        order_id   = order.get("id") or order.get("order_id", "")
+        exit_price = _wait_for_fill_price(order_id, current_price, timeout_s=30)
     except requests.HTTPError as sell_err:
         log.warning("Sell order failed for %s: %s — using current price for P&L", symbol, sell_err)
         exit_price = current_price
@@ -410,7 +464,10 @@ def _close_position(
             ctx = np.full(32, 0.5)
         raw_reward = pnl_pct / 100.0
         reward     = float(np.clip(raw_reward * 3.0, -1.0, 1.0))
-        bandit.update(pos["arm_index"], ctx, reward)
+        # FIX [F25]: Exit reason weighting — INV-2 reward signal purity
+        from src.quad_intelligence import get_exit_reason_weight
+        exit_weight = get_exit_reason_weight(exit_reason or "UNKNOWN")
+        bandit.update(pos["arm_index"], ctx, reward, exit_reason_weight=exit_weight)
         record_bandit_outcome({
             "position_id":    pos["id"],
             "arm_index":      pos["arm_index"],
@@ -632,3 +689,4 @@ def check_addon_opportunities(bandit) -> List[dict]:
                 log.error("Add-on order failed for %s: %s", symbol, add_err)
 
     return addons
+
