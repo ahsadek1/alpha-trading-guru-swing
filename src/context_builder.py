@@ -503,4 +503,9 @@ def build_context(
     except Exception as e:
         log.warning("Context build partially failed for %s: %s", symbol, e)
 
+    # FIX [F35+F40]: Runtime assertion — catch dimension drift before it corrupts bandit
+    assert len(ctx) == CONTEXT_DIM, (
+        f"Context vector dimension error: got {len(ctx)}, expected {CONTEXT_DIM}. "
+        f"Check CONTEXT_FEATURES vs context_builder feature population."
+    )
     return np.clip(ctx, 0.0, 1.0).astype(np.float32)
