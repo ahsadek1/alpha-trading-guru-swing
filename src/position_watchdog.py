@@ -20,8 +20,8 @@ from datetime import datetime
 
 log = logging.getLogger("position_watchdog")
 
-ALPACA_KEY    = os.getenv("ALPACA_API_KEY",    "PKPGM3BRNYPGCF5Z56IAUZCZJL")
-ALPACA_SECRET = os.getenv("ALPACA_SECRET_KEY", "5uVVmmB2dYnpA1SsTbkde8V2wixocBfAvGBsnrWSnJDs")
+ALPACA_KEY    = os.getenv("ALPACA_API_KEY",    "")  # FIX [F12]: no hardcoded fallback
+ALPACA_SECRET = os.getenv("ALPACA_SECRET_KEY", "")  # FIX [F12]: no hardcoded fallback
 ALPACA_BASE   = os.getenv("ALPACA_BASE_URL",   "https://paper-api.alpaca.markets")
 
 BOT_TOKEN    = os.getenv("TELEGRAM_BOT_TOKEN", "")
