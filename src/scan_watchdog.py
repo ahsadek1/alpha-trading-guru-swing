@@ -82,7 +82,7 @@ def _watchdog_loop(interval_s: int, service: str, bot_token: str, chat_id: str) 
                 pass
 
 
-def start(interval_s: int, service: str, bot_token: str = "", chat_id: str = "-5130564161") -> threading.Thread:
+def start(interval_s: int, service: str, bot_token: str = "", chat_id: str = "") -> threading.Thread:  # FIX [F10]: no hardcoded fallback
     """Launch scan watchdog daemon thread. Idempotent — safe to call multiple times."""
     global _watchdog_started
     with _lock:
