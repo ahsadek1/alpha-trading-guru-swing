@@ -109,9 +109,15 @@ class AutonomousSwingBandit:
         ucb_scores = np.zeros(self.n_arms)
         with np.errstate(divide="ignore", over="ignore", invalid="ignore"):
             for i in range(self.n_arms):
-                A_inv    = np.linalg.inv(self.A[i])
-                theta    = A_inv @ self.b[i]
-                variance = max(float(x @ A_inv @ x), 0.0)
+                # FIX [F39]: np.linalg.solve() more numerically stable than inv() for large A
+                try:
+                    theta    = np.linalg.solve(self.A[i], self.b[i])
+                    A_inv_x  = np.linalg.solve(self.A[i], x)
+                    variance = max(float(x @ A_inv_x), 0.0)
+                except np.linalg.LinAlgError:
+                    # A_i is singular — use warm priors (identity)
+                    theta    = self.b[i]
+                    variance = 1.0
                 ucb_scores[i] = float(np.dot(theta, x)) + self.alpha * np.sqrt(variance)
         ucb_scores = np.nan_to_num(ucb_scores, nan=0.0, posinf=0.0, neginf=0.0)
         return int(np.argmax(ucb_scores))
@@ -176,7 +182,7 @@ class AutonomousSwingBandit:
               else np.ones(self.context_dim, dtype=np.float64)
 
         theta_scores = np.array([
-            float(np.linalg.inv(self.A[i]) @ self.b[i] @ ctx)
+            float(np.linalg.solve(self.A[i], self.b[i]) @ ctx)  # FIX [F39]
             for i in range(self.n_arms)
         ])
         best_arm    = int(np.argmax(theta_scores))
