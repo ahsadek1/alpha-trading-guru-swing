@@ -449,43 +449,123 @@ def load_circuit_breaker_state(date_str: str = None) -> dict:
 
 
 # ── OLW + reconciler helpers (Steps 30–31) ────────────────────────────────────
+# FIX [F4]: Replaced undefined _db() context manager with get_connection()
+# FIX [F4]: Aligned table name to swing_positions (was incorrect 'positions')
 
 def get_pending_positions() -> list:
     """Return all positions with status='pending_open'."""
+    conn = get_connection()
     try:
-        with _db() as conn:
-            rows = conn.execute(
-                "SELECT * FROM positions WHERE status='pending_open'"
-            ).fetchall()
-            return [dict(r) for r in rows]
+        rows = conn.execute(
+            "SELECT * FROM swing_positions WHERE status='pending_open'"
+        ).fetchall()
+        return [dict(r) for r in rows]
     except Exception as e:
         log.warning("get_pending_positions error: %s", e)
         return []
+    finally:
+        conn.close()
 
 
 def void_position(db_id: int, reason: str) -> None:
     """Mark a position as voided (order rejected / canceled / aged out)."""
+    conn = get_connection()
     try:
-        with _db() as conn:
-            conn.execute(
-                "UPDATE positions SET status='voided', exit_reason=? WHERE id=?",
-                (reason, db_id),
-            )
-            conn.commit()
+        conn.execute(
+            "UPDATE swing_positions SET status='voided', exit_reason=? WHERE id=?",
+            (reason, db_id),
+        )
+        conn.commit()
         log.info("Position %d voided: %s", db_id, reason)
     except Exception as e:
         log.warning("void_position(%d) error: %s", db_id, e)
+    finally:
+        conn.close()
 
 
 def confirm_position_open(db_id: int, filled_price: float) -> None:
     """Mark a pending position as open once fill confirmed."""
+    conn = get_connection()
     try:
-        with _db() as conn:
-            conn.execute(
-                "UPDATE positions SET status='open', entry_price=? WHERE id=?",
-                (filled_price, db_id),
-            )
-            conn.commit()
+        conn.execute(
+            "UPDATE swing_positions SET status='OPEN', entry_price=? WHERE id=?",
+            (filled_price, db_id),
+        )
+        conn.commit()
         log.info("Position %d confirmed open @ %.2f", db_id, filled_price)
     except Exception as e:
         log.warning("confirm_position_open(%d) error: %s", db_id, e)
+    finally:
+        conn.close()
+
+
+# ── Circuit Breaker Persistence (Step 35) ─────────────────────────────────────
+# FIX [F4]: Uses get_connection() with proper finally blocks.
+# FIX [F6]: Added equity_peak, current_equity for drawdown CB.
+
+def save_circuit_breaker_state(
+    daily_pnl: float,
+    circuit_breaker_active: bool,
+    daily_loss_limit: float,
+    equity_peak: float = 0.0,
+    current_equity: float = 0.0,
+    date_str: str = None,
+) -> None:
+    """Persist circuit breaker state for today to system_state table."""
+    try:
+        today = date_str or datetime.date.today().isoformat()
+        conn  = get_connection()
+        try:
+            for key, value in [
+                (f"cb_daily_pnl_{today}",        str(round(daily_pnl, 4))),
+                (f"cb_active_{today}",            "1" if circuit_breaker_active else "0"),
+                (f"cb_daily_loss_limit_{today}",  str(round(daily_loss_limit, 4))),
+                (f"cb_equity_peak_{today}",       str(round(equity_peak, 2))),
+                (f"cb_current_equity_{today}",    str(round(current_equity, 2))),
+            ]:
+                conn.execute("""
+                    INSERT INTO system_state (key, value, updated_at)
+                    VALUES (?, ?, datetime('now'))
+                    ON CONFLICT(key) DO UPDATE SET
+                        value=excluded.value,
+                        updated_at=excluded.updated_at
+                """, (key, value))
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as e:
+        log.warning("Circuit breaker state save failed (non-fatal): %s", e)
+
+
+def load_circuit_breaker_state(date_str: str = None) -> dict:
+    """Load today's circuit breaker state from system_state table."""
+    defaults = {
+        "daily_pnl":              0.0,
+        "circuit_breaker_active": False,
+        "daily_loss_limit":       0.0,
+        "equity_peak":            0.0,
+        "current_equity":         0.0,
+    }
+    try:
+        today = date_str or datetime.date.today().isoformat()
+        conn  = get_connection()
+        try:
+            rows = conn.execute(
+                "SELECT key, value FROM system_state WHERE key LIKE ?",
+                (f"cb_%_{today}",)
+            ).fetchall()
+        finally:
+            conn.close()
+        if not rows:
+            return defaults
+        row_map = {r["key"]: r["value"] for r in rows}
+        return {
+            "daily_pnl":              float(row_map.get(f"cb_daily_pnl_{today}",        0.0)),
+            "circuit_breaker_active": row_map.get(f"cb_active_{today}", "0") == "1",
+            "daily_loss_limit":       float(row_map.get(f"cb_daily_loss_limit_{today}", 0.0)),
+            "equity_peak":            float(row_map.get(f"cb_equity_peak_{today}",      0.0)),
+            "current_equity":         float(row_map.get(f"cb_current_equity_{today}",   0.0)),
+        }
+    except Exception as e:
+        log.warning("Circuit breaker state load failed (starting fresh): %s", e)
+        return defaults
