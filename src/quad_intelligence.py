@@ -1,21 +1,28 @@
 """
-ATG Quad-Intelligence Validator v3.0
+ATG Quad-Intelligence Validator v3.1
 
-Runs 3 independent AI brains in parallel to validate each swing trade setup.
-Consensus drives position sizing; divergence surfaces key risks.
+FIX [F14]: Implemented INV-5 graduated failure policy.
+           Brain failures now distinguished from brain votes.
+           0 failures → normal voting | 1 failure → 2-brain (max MODERATE)
+           2 failures → DEGRADED (0.25x) + Ahmed alert
+           3 failures → SUSPENDED (no trade) + Ahmed alert
 
-Decision matrix:
-  3/3 proceed  → STRONG    → 1.5x size boost
-  2/3 proceed  → MODERATE  → 1.0x standard size
-  1/3 proceed  → WEAK      → skip trade (0.5x)
-  0/3 proceed  → BLOCKED   → skip trade (0.0x)
+Decision matrix (0 failures):
+  3/3 proceed  → STRONG    → 1.5x size
+  2/3 proceed  → MODERATE  → 1.0x size
+  1/3 proceed  → BLOCKED
+  0/3 proceed  → BLOCKED + alert Ahmed
 
-Brains:
-  1. DeepSeek V3  — quantitative patterns, price action, technical structure
-  2. Gemini 2.5   — macro context, sector dynamics, broader market regime
-  3. GPT-4o-mini  — fundamental analysis, earnings quality, valuation
+Decision matrix (1 failure):
+  2/2 proceed  → MODERATE  → 1.0x (NOT STRONG — per INV-5)
+  1/2 or 0/2   → BLOCKED
 
-Claude is embedded in every design decision as the architecture brain.
+Decision matrix (2 failures):
+  1/1 proceed  → DEGRADED  → 0.25x + alert Ahmed
+  0/1          → BLOCKED + alert Ahmed
+
+Decision matrix (3 failures):
+  SUSPENDED → no trade + alert Ahmed
 """
 import os
 import json
@@ -23,7 +30,7 @@ import logging
 import re
 import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List
+from typing import List, Tuple
 
 from config.settings import DEEPSEEK_API_KEY, GEMINI_API_KEY, OPENAI_API_KEY
 
@@ -35,22 +42,56 @@ OPENAI_URL   = "https://api.openai.com/v1/chat/completions"
 
 TIMEOUT_S   = 20
 MAX_TOKENS  = 200
+MIN_POSITION_USD = 200.0   # INV-6: skip trade if sizing falls below this
+
+# INV-5: Exit reason weights for bandit update (used by trade_executor)
+EXIT_REASON_WEIGHTS = {
+    "PROFIT_TARGET":    1.0,
+    "STAGED_EXIT":      1.0,
+    "STOP_HIT":         1.0,
+    "TIERED_STOP":      1.0,
+    "BREAKEVEN_STOP":   0.8,
+    "TIME_EXIT":        0.8,
+    "TIME_STOP":        0.5,
+    "DTE_FORCED":       0.5,
+    "TRAILING_STOP":    0.9,
+    "CIRCUIT_BREAKER":  0.0,
+    "MANUAL_CLOSE":     0.0,
+    "RECONCILER_VOID":  0.0,
+    "UNKNOWN":          0.5,
+}
 
 
-# ── Prompt builder ────────────────────────────────────────────────────────────
+def get_exit_reason_weight(exit_reason: str) -> float:
+    """
+    Return the bandit update weight for a given exit reason.
+    INV-2: Only high-quality exit signals update bandit posterior.
+    """
+    weight = EXIT_REASON_WEIGHTS.get(exit_reason.upper() if exit_reason else "UNKNOWN", 0.5)
+    if exit_reason and exit_reason.upper() not in EXIT_REASON_WEIGHTS:
+        log.warning("Unknown exit reason '%s' — using weight=0.5", exit_reason)
+    return weight
+
+
+def _alert_ahmed(message: str) -> None:
+    """Send alert to Ahmed. Non-blocking, never raises."""
+    try:
+        token   = os.getenv("TELEGRAM_BOT_TOKEN", "")
+        chat_id = os.getenv("TELEGRAM_AHMED_ID", "8573754783")
+        if not token:
+            return
+        import urllib.request
+        payload = json.dumps({"chat_id": chat_id, "text": message}).encode()
+        req = urllib.request.Request(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            data=payload, headers={"Content-Type": "application/json"}
+        )
+        urllib.request.urlopen(req, timeout=5)
+    except Exception:
+        pass
+
 
 def _build_prompt(setup: dict, selection: dict, brain_role: str) -> str:
-    """
-    Construct a brain-specific trade evaluation prompt.
-
-    Args:
-        setup      : scanner result dict.
-        selection  : bandit selection dict (setup_type, stop_multiplier).
-        brain_role : role description for the AI persona.
-
-    Returns:
-        Prompt string requesting JSON output.
-    """
     symbol     = setup.get("symbol", "?")
     setup_type = setup.get("setup_type", "?")
     score      = setup.get("score", 0)
@@ -89,295 +130,235 @@ TRADE SETUP:
   Stop Multiplier: {stop_mult:.1f}x ATR
 
 Evaluate whether this setup has high probability of success in the next 3-8 weeks.
-Consider: sector strength, market conditions, setup quality, risk/reward, momentum.
 
 Reply ONLY in this exact JSON format (no other text):
 {{"conviction": "HIGH" | "MEDIUM" | "LOW", "proceed": true | false, "thesis": "one sentence max 20 words", "key_risk": "biggest risk in max 15 words"}}"""
 
 
-# ── Individual brain callers ──────────────────────────────────────────────────
-
 def _parse_json_response(content: str) -> dict:
-    """
-    Safely extract and parse the first JSON object from an LLM response.
-
-    Args:
-        content: raw text response from the LLM.
-
-    Returns:
-        Parsed dict with normalised keys, or safe fallback.
-    """
     try:
         match = re.search(r'\{[^{}]+\}', content, re.DOTALL)
         if match:
             d = json.loads(match.group())
             d["proceed"]    = bool(d.get("proceed", True))
             d["conviction"] = str(d.get("conviction", "MEDIUM")).upper()
+            d["failed"]     = False
             return d
     except (json.JSONDecodeError, AttributeError):
         pass
-    return {"conviction": "LOW", "proceed": False, "thesis": "parse error", "key_risk": "unknown"}
+    return {"conviction": "LOW", "proceed": False, "thesis": "parse error",
+            "key_risk": "unknown", "failed": False}
 
 
 def _call_deepseek(prompt: str) -> dict:
-    """
-    Query DeepSeek V3 for a trade evaluation.
-
-    Args:
-        prompt: formatted evaluation prompt.
-
-    Returns:
-        Parsed response dict with "brain" key set to "deepseek".
-    """
     if not DEEPSEEK_API_KEY:
-        log.warning("DeepSeek key not configured — BLOCKING (fail-closed)")
-        return {
-            "conviction": "LOW", "proceed": False,
-            "thesis": "DeepSeek not configured", "key_risk": "Brain unavailable", "brain": "deepseek",
-        }
+        return {"conviction": "LOW", "proceed": False, "thesis": "DeepSeek not configured",
+                "key_risk": "Brain unavailable", "brain": "deepseek", "failed": True}
     try:
         resp = requests.post(
             DEEPSEEK_URL,
-            headers={
-                "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
-                "Content-Type":  "application/json",
-            },
-            json={
-                "model":       "deepseek-chat",
-                "messages":    [{"role": "user", "content": prompt}],
-                "max_tokens":  MAX_TOKENS,
-                "temperature": 0.1,
-            },
+            headers={"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"},
+            json={"model": "deepseek-chat", "messages": [{"role": "user", "content": prompt}],
+                  "max_tokens": MAX_TOKENS, "temperature": 0.1},
             timeout=TIMEOUT_S,
         )
         resp.raise_for_status()
-        content = resp.json()["choices"][0]["message"]["content"].strip()
-        result  = _parse_json_response(content)
+        result = _parse_json_response(resp.json()["choices"][0]["message"]["content"].strip())
         result["brain"] = "deepseek"
-        log.info("DeepSeek: proceed=%s conviction=%s", result.get("proceed"), result.get("conviction"))
         return result
-    except (requests.RequestException, KeyError, IndexError) as e:
-        log.warning("DeepSeek call failed: %s — defaulting to proceed", e)
-        return {
-            "conviction": "LOW", "proceed": False,
-            "thesis": "timeout", "key_risk": "API error", "brain": "deepseek",
-        }
+    except Exception as e:
+        log.warning("DeepSeek brain FAILED: %s", e)
+        # FIX [F14]: failed=True marks this as API failure, not a vote against
+        return {"conviction": "LOW", "proceed": False, "thesis": "timeout",
+                "key_risk": "API failure", "brain": "deepseek", "failed": True}
 
 
 def _call_gemini(prompt: str) -> dict:
-    """
-    Query Gemini 2.0 Flash for a trade evaluation.
-
-    Args:
-        prompt: formatted evaluation prompt.
-
-    Returns:
-        Parsed response dict with "brain" key set to "gemini".
-    """
     if not GEMINI_API_KEY:
-        log.warning("Gemini key not configured — BLOCKING (fail-closed)")
-        return {
-            "conviction": "LOW", "proceed": False,
-            "thesis": "Gemini not configured", "key_risk": "Brain unavailable", "brain": "gemini",
-        }
+        return {"conviction": "LOW", "proceed": False, "thesis": "Gemini not configured",
+                "key_risk": "Brain unavailable", "brain": "gemini", "failed": True}
     try:
         resp = requests.post(
             f"{GEMINI_URL}?key={GEMINI_API_KEY}",
             headers={"Content-Type": "application/json"},
-            json={
-                "contents": [{"parts": [{"text": prompt}]}],
-                "generationConfig": {"maxOutputTokens": MAX_TOKENS, "temperature": 0.1},
-            },
+            json={"contents": [{"parts": [{"text": prompt}]}],
+                  "generationConfig": {"maxOutputTokens": MAX_TOKENS, "temperature": 0.1}},
             timeout=TIMEOUT_S,
         )
         resp.raise_for_status()
-        content = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
-        result  = _parse_json_response(content)
+        result = _parse_json_response(resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip())
         result["brain"] = "gemini"
-        log.info("Gemini: proceed=%s conviction=%s", result.get("proceed"), result.get("conviction"))
         return result
-    except (requests.RequestException, KeyError, IndexError) as e:
-        log.warning("Gemini call failed: %s — defaulting to proceed", e)
-        return {
-            "conviction": "LOW", "proceed": False,
-            "thesis": "timeout", "key_risk": "API error", "brain": "gemini",
-        }
+    except Exception as e:
+        log.warning("Gemini brain FAILED: %s", e)
+        return {"conviction": "LOW", "proceed": False, "thesis": "timeout",
+                "key_risk": "API failure", "brain": "gemini", "failed": True}
 
 
 def _call_gpt4o(prompt: str) -> dict:
-    """
-    Query GPT-4o-mini for a trade evaluation.
-
-    Args:
-        prompt: formatted evaluation prompt.
-
-    Returns:
-        Parsed response dict with "brain" key set to "gpt4o".
-    """
     if not OPENAI_API_KEY:
-        log.debug("OpenAI key not configured — defaulting to proceed")
-        return {
-            "conviction": "MEDIUM", "proceed": True,
-            "thesis": "GPT-4o not configured", "key_risk": "N/A", "brain": "gpt4o",
-        }
+        return {"conviction": "LOW", "proceed": False, "thesis": "GPT-4o not configured",
+                "key_risk": "Brain unavailable", "brain": "gpt4o", "failed": True}
     try:
         resp = requests.post(
             OPENAI_URL,
-            headers={
-                "Authorization": f"Bearer {OPENAI_API_KEY}",
-                "Content-Type":  "application/json",
-            },
-            json={
-                "model":       "gpt-4o-mini",
-                "messages":    [{"role": "user", "content": prompt}],
-                "max_tokens":  MAX_TOKENS,
-                "temperature": 0.1,
-            },
+            headers={"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"},
+            json={"model": "gpt-4o-mini", "messages": [{"role": "user", "content": prompt}],
+                  "max_tokens": MAX_TOKENS, "temperature": 0.1},
             timeout=TIMEOUT_S,
         )
         resp.raise_for_status()
-        content = resp.json()["choices"][0]["message"]["content"].strip()
-        result  = _parse_json_response(content)
+        result = _parse_json_response(resp.json()["choices"][0]["message"]["content"].strip())
         result["brain"] = "gpt4o"
-        log.info("GPT-4o: proceed=%s conviction=%s", result.get("proceed"), result.get("conviction"))
         return result
-    except (requests.RequestException, KeyError, IndexError) as e:
-        log.warning("GPT-4o call failed: %s — defaulting to proceed", e)
+    except Exception as e:
+        log.warning("GPT-4o brain FAILED: %s", e)
+        return {"conviction": "LOW", "proceed": False, "thesis": "timeout",
+                "key_risk": "API failure", "brain": "gpt4o", "failed": True}
+
+
+def _aggregate(votes: List[dict], symbol: str = "?") -> dict:
+    """
+    FIX [F14]: Full INV-5 graduated failure policy.
+    Distinguishes brain failures (failed=True) from brain votes (failed=False).
+
+    Failure modes:
+      0 failures → normal 3-brain voting (STRONG/MODERATE/BLOCKED)
+      1 failure  → 2-brain system (max MODERATE, no STRONG allowed)
+      2 failures → DEGRADED (0.25x size), alert Ahmed
+      3 failures → SUSPENDED (no trade), alert Ahmed
+    """
+    failures = [v for v in votes if v.get("failed", False)]
+    actives  = [v for v in votes if not v.get("failed", False)]
+    n_fail   = len(failures)
+    n_active = len(actives)
+
+    # SUSPENDED: all brains failed
+    if n_fail == 3:
+        log.error("⚠️ QI SUSPENDED — all 3 brains failed for %s", symbol)
+        _alert_ahmed(
+            f"⚠️ ATG QI SUSPENDED: All 3 AI brains unavailable for {symbol}. "
+            f"No trade executed. Check API keys."
+        )
         return {
-            "conviction": "LOW", "proceed": False,
-            "thesis": "timeout", "key_risk": "API error", "brain": "gpt4o",
+            "proceed": False, "consensus": "SUSPENDED", "size_multiplier": 0.0,
+            "proceed_count": 0, "total_brains": 3, "failures": 3,
+            "thesis": "All AI brains unavailable", "key_risks": ["QI fully down"],
+            "votes": votes,
         }
 
+    # DEGRADED: 2 brains failed
+    if n_fail == 2:
+        remaining_vote = actives[0] if actives else None
+        if remaining_vote and remaining_vote.get("proceed", False):
+            consensus     = "DEGRADED"
+            size_mult     = 0.25
+            final_proceed = True
+            thesis        = remaining_vote.get("thesis", "—")
+        else:
+            consensus     = "BLOCKED"
+            size_mult     = 0.0
+            final_proceed = False
+            thesis        = "Degraded QI — remaining brain blocked"
+        failed_names = [v.get("brain", "?") for v in failures]
+        log.warning("⚠️ QI DEGRADED for %s — brains failed: %s", symbol, failed_names)
+        _alert_ahmed(
+            f"⚠️ ATG QI DEGRADED for {symbol}: {', '.join(failed_names)} unavailable. "
+            f"Decision: {consensus} ({size_mult:.0%} size). Check API health."
+        )
+        return {
+            "proceed": final_proceed, "consensus": consensus, "size_multiplier": size_mult,
+            "proceed_count": 1 if final_proceed else 0, "total_brains": 3, "failures": n_fail,
+            "thesis": thesis, "key_risks": ["QI degraded"],
+            "votes": votes,
+        }
 
-# ── Aggregator ────────────────────────────────────────────────────────────────
+    # 1 failure: 2-brain system (max MODERATE, not STRONG per INV-5)
+    if n_fail == 1:
+        proceed_count = sum(1 for v in actives if v.get("proceed", False))
+        if proceed_count == 2:
+            # Both active brains agree → MODERATE (NOT STRONG per INV-5)
+            consensus = "MODERATE"
+            size_mult = 1.0
+            final_proceed = True
+        else:
+            consensus = "BLOCKED"
+            size_mult = 0.0
+            final_proceed = False
+        log.info("QI 2-brain system for %s (1 failure) → %s", symbol, consensus)
+        thesis = max(actives, key=lambda v: {"HIGH":3,"MEDIUM":2,"LOW":1}.get(v.get("conviction","MEDIUM"),2)).get("thesis","—")
+        return {
+            "proceed": final_proceed, "consensus": consensus, "size_multiplier": size_mult,
+            "proceed_count": proceed_count, "total_brains": 3, "failures": n_fail,
+            "thesis": thesis,
+            "key_risks": [v.get("key_risk","") for v in actives if not v.get("proceed",False)],
+            "votes": votes,
+        }
 
-def _aggregate(votes: List[dict]) -> dict:
-    """
-    Aggregate votes from all brains into a consensus decision.
+    # 0 failures: normal 3-brain voting
+    proceed_count = sum(1 for v in actives if v.get("proceed", False))
 
-    Decision matrix:
-      3/3 → STRONG   (1.5x size)
-      2/3 → MODERATE (1.0x size)
-      1/3 → WEAK     (0.5x, blocked)
-      0/3 → BLOCKED  (0.0x)
-
-    Args:
-        votes: list of per-brain response dicts.
-
-    Returns:
-        Aggregated consensus dict.
-    """
-    proceed_count = sum(1 for v in votes if v.get("proceed", True))
-    total         = len(votes)
-
-    if proceed_count == total:
-        consensus     = "STRONG"
-        size_mult     = 1.50
-        final_proceed = True
-    elif proceed_count >= max(1, int(total * 0.67)):   # ≥ 2/3
-        consensus     = "MODERATE"
-        size_mult     = 1.00
-        final_proceed = True
-    elif proceed_count >= 1:
-        consensus     = "WEAK"
-        size_mult     = 0.50
-        final_proceed = False
+    if proceed_count == 3:
+        consensus = "STRONG"; size_mult = 1.5; final_proceed = True
+    elif proceed_count == 2:
+        consensus = "MODERATE"; size_mult = 1.0; final_proceed = True
+    elif proceed_count == 1:
+        consensus = "BLOCKED"; size_mult = 0.0; final_proceed = False
     else:
-        consensus     = "BLOCKED"
-        size_mult     = 0.00
-        final_proceed = False
+        consensus = "BLOCKED"; size_mult = 0.0; final_proceed = False
+        _alert_ahmed(f"⚠️ ATG QI: all 3 brains voted AGAINST {symbol}.")
 
-    dissents  = [v.get("key_risk", "") for v in votes if not v.get("proceed", True)]
-    key_risks = list({r for r in dissents if r and r not in ("N/A", "unknown", "API error")})
-
-    best_vote = max(
-        votes,
-        key=lambda v: {"HIGH": 3, "MEDIUM": 2, "LOW": 1}.get(v.get("conviction", "MEDIUM"), 2),
-    )
-    thesis = best_vote.get("thesis", "—")
-
+    best = max(actives, key=lambda v: {"HIGH":3,"MEDIUM":2,"LOW":1}.get(v.get("conviction","MEDIUM"),2))
     return {
-        "proceed":         final_proceed,
-        "consensus":       consensus,
-        "size_multiplier": size_mult,
-        "proceed_count":   proceed_count,
-        "total_brains":    total,
-        "thesis":          thesis,
-        "key_risks":       key_risks,
-        "votes":           votes,
+        "proceed": final_proceed, "consensus": consensus, "size_multiplier": size_mult,
+        "proceed_count": proceed_count, "total_brains": 3, "failures": 0,
+        "thesis": best.get("thesis","—"),
+        "key_risks": [v.get("key_risk","") for v in actives if not v.get("proceed",False)],
+        "votes": votes,
     }
 
 
-# ── Main entry point ──────────────────────────────────────────────────────────
-
 def quad_validate(setup: dict, selection: dict) -> dict:
     """
-    Run all 3 external AI brains in parallel and return aggregated consensus.
+    Run all 3 AI brains in parallel. Return INV-5 graduated consensus.
 
-    Args:
-        setup     : scanner result dict (symbol, price, setup_type, …).
-        selection : bandit selection dict (setup_type, stop_multiplier).
-
-    Returns:
-        Consensus dict with keys:
-          proceed, consensus, size_multiplier, proceed_count, total_brains,
-          thesis, key_risks, votes.
+    FIX [F14]: Uses graduated failure policy with explicit failure tracking.
     """
     symbol = setup.get("symbol", "?")
-    log.info("Quad-Intelligence validating %s %s …", symbol, setup.get("setup_type", "?"))
+    log.info("Quad-Intelligence validating %s %s …", symbol, setup.get("setup_type","?"))
 
     brain_calls = {
-        "deepseek": (
-            _call_deepseek,
-            _build_prompt(
-                setup, selection,
-                "quantitative swing trade analyst specialising in price action, volume, and technical patterns",
-            ),
-        ),
-        "gemini": (
-            _call_gemini,
-            _build_prompt(
-                setup, selection,
-                "macro-aware market analyst specialising in sector dynamics, market regime, and broader context",
-            ),
-        ),
-        "gpt4o": (
-            _call_gpt4o,
-            _build_prompt(
-                setup, selection,
-                "fundamental analyst specialising in business quality, earnings catalysts, and valuation",
-            ),
-        ),
+        "deepseek": (_call_deepseek, _build_prompt(setup, selection,
+            "quantitative swing trade analyst specialising in price action and technical patterns")),
+        "gemini":   (_call_gemini,   _build_prompt(setup, selection,
+            "macro-aware market analyst specialising in sector dynamics and market regime")),
+        "gpt4o":    (_call_gpt4o,    _build_prompt(setup, selection,
+            "fundamental analyst specialising in earnings quality and business momentum")),
     }
 
     votes: List[dict] = []
     with ThreadPoolExecutor(max_workers=3) as executor:
-        futures = {
-            executor.submit(fn, prompt): name
-            for name, (fn, prompt) in brain_calls.items()
-        }
+        futures = {executor.submit(fn, prompt): name for name, (fn, prompt) in brain_calls.items()}
         for future in as_completed(futures, timeout=TIMEOUT_S + 5):
             brain_name = futures[future]
             try:
                 result = future.result(timeout=2)
                 votes.append(result)
             except Exception as e:
-                log.warning("Brain %s result retrieval failed: %s — defaulting to proceed", brain_name, e)
-                votes.append({
-                    "conviction": "LOW", "proceed": False,
-                    "thesis": "timeout", "key_risk": "N/A", "brain": brain_name,
-                })
+                log.warning("Brain %s result retrieval exception: %s", brain_name, e)
+                votes.append({"conviction": "LOW", "proceed": False, "thesis": "exception",
+                               "key_risk": "N/A", "brain": brain_name, "failed": True})
 
-    consensus = _aggregate(votes)
+    consensus = _aggregate(votes, symbol=symbol)
 
     vote_str = " | ".join(
-        f"{v['brain']}: {'✅' if v['proceed'] else '❌'} {v['conviction']}"
+        f"{v.get('brain','?')}: {'💀' if v.get('failed') else '✅' if v.get('proceed') else '❌'} "
+        f"{v.get('conviction','?')}"
         for v in consensus["votes"]
     )
     log.info(
-        "Quad-Intelligence %s | %d/%d proceed | %s | %s",
+        "QI %s | %d/%d proceed | %d failed | %s | %s",
         symbol, consensus["proceed_count"], consensus["total_brains"],
-        consensus["consensus"], vote_str,
+        consensus.get("failures", 0), consensus["consensus"], vote_str,
     )
-
     return consensus
