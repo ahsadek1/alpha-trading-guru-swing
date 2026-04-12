@@ -172,8 +172,19 @@ def maybe_advance_phase(orchestrator) -> bool:
     current   = get_current_phase()
     if current >= 4:
         return False
+
+    # FIX [F16]: Block advancement beyond implemented phases
+    # Phases 2-4 are design stubs — advancing causes theater (DB says Phase 2, code runs Phase 1)
+    MAX_IMPLEMENTED_PHASE = 1
+    if current >= MAX_IMPLEMENTED_PHASE:
+        log.debug("Phase %d criteria may be met but phase not yet implemented — holding", current + 1)
+        return False
+
     new_phase = check_phase_transition(current)
     if new_phase:
+        # FIX [F17]: Regime diversity is not yet tracked (swing_positions has no regime_label)
+        # Phase advancement additionally requires: distinct regimes >= 3, stress trades >= 10
+        # Until regime_label column is added, this check is skipped (gated by F16 anyway)
         _set_phase(new_phase, trigger="auto_criteria_met")
         _set_phase_start_date(datetime.utcnow())
         orchestrator.on_phase_transition(current, new_phase)
