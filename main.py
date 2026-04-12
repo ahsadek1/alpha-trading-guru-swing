@@ -140,17 +140,17 @@ async def lifespan(app: FastAPI):
     try:
         from src.startup_reconciler import StartupReconciler
         from src.database import get_open_positions
+        # FIX [F3]: Wire real DB functions — stubs were preventing ghost trade cleanup
+        from src.database import void_position as _void_pos, confirm_position_open as _confirm_pos, get_pending_positions as _get_pending
         _reconciler = StartupReconciler(
             alpaca_base_url=ALPACA_BASE_URL,
             alpaca_key=ALPACA_API_KEY,
             alpaca_secret=ALPACA_SECRET_KEY,
-            cr_client=None,                      # ATG_SWING uses direct CR calls; no cr_client
+            cr_client=None,
             db_get_open_fn=get_open_positions,
-            db_get_pending_fn=lambda: [],        # ATG_SWING has no pending-state tracking
-            db_void_fn=lambda db_id, reason: log.warning(
-                "RECONCILE void requested db_id=%d reason=%s (stub)", db_id, reason
-            ),
-            db_confirm_fn=lambda db_id, price: None,
+            db_get_pending_fn=_get_pending,       # FIX [F3]: real pending query
+            db_void_fn=_void_pos,                 # FIX [F3]: real void (was no-op stub)
+            db_confirm_fn=_confirm_pos,           # FIX [F3]: real confirm (was no-op stub)
             system_id="ATG_SWING",
             notify_fn=None,
         )
