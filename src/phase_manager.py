@@ -49,9 +49,15 @@ def _set_phase(phase: int, trigger: str = "") -> None:
     stats        = get_trade_stats()
     current      = get_current_phase()
     conn         = get_connection()
+    # FIX [F37]: Always reset phase_start_date when phase changes — prevents days_alive drift
+    now_iso = datetime.utcnow().isoformat()
     conn.execute(
         "INSERT OR REPLACE INTO system_state (key, value) VALUES ('current_phase', ?)",
         (str(phase),),
+    )
+    conn.execute(
+        "INSERT OR REPLACE INTO system_state (key, value) VALUES ('phase_start_date', ?)",
+        (now_iso,),
     )
     conn.execute("""
         INSERT INTO phase_log (from_phase, to_phase, trigger, total_trades, win_rate)
