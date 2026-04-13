@@ -59,9 +59,20 @@ def initialize_database() -> None:
             pnl_pct          REAL,
             pnl_dollars      REAL,
             hold_days        INTEGER,
-            created_at       TEXT    DEFAULT (datetime('now'))
+            created_at       TEXT    DEFAULT (datetime('now')),
+            predicted_reward REAL,           -- FIX [F24]: bandit predicted reward at entry
+            actual_reward    REAL            -- FIX [F24]: actual reward after close (pnl_pct/100)
         )
     """)
+    # FIX [F24]: Add columns to existing DB if missing (safe migration)
+    try:
+        c.execute("ALTER TABLE swing_positions ADD COLUMN predicted_reward REAL")
+    except Exception:
+        pass  # column already exists
+    try:
+        c.execute("ALTER TABLE swing_positions ADD COLUMN actual_reward REAL")
+    except Exception:
+        pass
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS bandit_outcomes (
@@ -569,3 +580,75 @@ def load_circuit_breaker_state(date_str: str = None) -> dict:
     except Exception as e:
         log.warning("Circuit breaker state load failed (starting fresh): %s", e)
         return defaults
+
+
+# ── F24: Bandit Calibration Monitor ──────────────────────────────────────────
+
+def save_predicted_reward(db_id: int, predicted_reward: float) -> None:
+    """Store bandit's predicted reward at entry time for calibration tracking."""
+    conn = get_connection()
+    try:
+        conn.execute(
+            "UPDATE swing_positions SET predicted_reward=? WHERE id=?",
+            (float(predicted_reward), db_id)
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def save_actual_reward(db_id: int, actual_reward: float) -> None:
+    """Store actual reward after close for calibration tracking."""
+    conn = get_connection()
+    try:
+        conn.execute(
+            "UPDATE swing_positions SET actual_reward=? WHERE id=?",
+            (float(actual_reward), db_id)
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_bandit_calibration_stats(min_samples: int = 20) -> dict:
+    """
+    FIX [F24]: Compute bandit calibration — predicted vs actual reward MAE.
+    
+    Returns:
+        {
+          "samples":        int,
+          "mae":            float,  # mean absolute error
+          "bias":           float,  # mean(predicted - actual) — positive = over-confident
+          "drift_alert":    bool,   # True if MAE > 0.25 (bandit needs recalibration)
+          "calibrated":     bool,   # True if MAE < 0.10 (excellent calibration)
+        }
+    """
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """SELECT predicted_reward, actual_reward
+               FROM swing_positions
+               WHERE status='closed'
+                 AND predicted_reward IS NOT NULL
+                 AND actual_reward IS NOT NULL
+               ORDER BY created_at DESC
+               LIMIT 100"""
+        ).fetchall()
+    finally:
+        conn.close()
+
+    if len(rows) < min_samples:
+        return {"samples": len(rows), "mae": None, "bias": None,
+                "drift_alert": False, "calibrated": False,
+                "note": f"Insufficient samples ({len(rows)}/{min_samples})"}
+
+    errors = [float(r[0]) - float(r[1]) for r in rows]
+    mae    = sum(abs(e) for e in errors) / len(errors)
+    bias   = sum(errors) / len(errors)
+    return {
+        "samples":     len(rows),
+        "mae":         round(mae, 4),
+        "bias":        round(bias, 4),
+        "drift_alert": mae > 0.25,
+        "calibrated":  mae < 0.10,
+    }
