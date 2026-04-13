@@ -57,6 +57,10 @@ MIN_MARKET_BREADTH    = float(os.getenv("MIN_MARKET_BREADTH",  "45"))
 # ── Dynamic Exit Management ───────────────────────────────────────────────────
 # FIX [F29-PENDING]: Ahmed confirm: extend to 21? Backtest shows 10d kills 54% of trades.
 TIME_STOP_DAYS          = int(os.getenv("TIME_STOP_DAYS",           "10"))  # TODO: Ahmed to set to 21
+
+# FIX [F38]: DTE 1-day gap — submissions validated at DTE≥22 to guarantee ≥21 at next-morning execution
+MIN_DTE_AT_SUBMISSION   = int(os.getenv("MIN_DTE_AT_SUBMISSION",    "22"))  # +1 buffer for overnight gap
+MIN_DTE_AT_EXECUTION    = int(os.getenv("MIN_DTE_AT_EXECUTION",     "21"))  # hard floor at execution time
 BREAKEVEN_TRIGGER_ATR   = float(os.getenv("BREAKEVEN_TRIGGER_ATR",  "1.0"))
 TRAILING_ACTIVATION_PCT = float(os.getenv("TRAILING_ACTIVATION_PCT","0.08"))
 TRAILING_ATR_MULTIPLE   = float(os.getenv("TRAILING_ATR_MULTIPLE",  "2.0"))
