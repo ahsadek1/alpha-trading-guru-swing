@@ -20,6 +20,8 @@ logger = logging.getLogger(__name__)
 _last_scan_ts: float = time.time()
 _watchdog_started: bool = False
 _lock = threading.Lock()
+_restart_count: int = 0                    # FIX [F13]: SIGTERM restart counter
+_restart_window_start: float = time.time() # FIX [F13]: rolling 1hr window
 
 _ET = pytz.timezone("America/New_York")
 _MARKET_OPEN  = dtime(9, 25)   # 5-min buffer before open
@@ -67,19 +69,27 @@ def _watchdog_loop(interval_s: int, service: str, bot_token: str, chat_id: str) 
                 f"(limit {deadline}s). Triggering restart."
             )
             logger.critical(msg)
+            # FIX [F43]: Never log the Telegram URL — token would be exposed in logs
             try:
                 if bot_token and bot_token not in ("", "DISABLED"):
-                    requests.post(
-                        f"https://api.telegram.org/bot{bot_token}/sendMessage",
-                        json={"chat_id": chat_id, "text": msg},
-                        timeout=5,
-                    )
+                    _tg_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+                    requests.post(_tg_url, json={"chat_id": chat_id, "text": msg}, timeout=5)
             except Exception:
                 pass
-            try:
-                os.kill(os.getpid(), signal.SIGTERM)
-            except Exception:
-                pass
+            # FIX [F13]: Cap SIGTERM restarts — max 3 per hour, then stop alerting
+            global _restart_count, _restart_window_start
+            now = time.time()
+            if now - _restart_window_start > 3600:
+                _restart_count = 0
+                _restart_window_start = now
+            if _restart_count < 3:
+                _restart_count += 1
+                try:
+                    os.kill(os.getpid(), signal.SIGTERM)
+                except Exception:
+                    pass
+            else:
+                logger.error("Watchdog: SIGTERM cap reached (3/hr) — not restarting. Manual intervention needed.")
 
 
 def start(interval_s: int, service: str, bot_token: str = "", chat_id: str = "") -> threading.Thread:  # FIX [F10]: no hardcoded fallback
