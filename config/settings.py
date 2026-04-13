@@ -55,8 +55,9 @@ VIX_SPIKE_THRESHOLD   = float(os.getenv("VIX_SPIKE_THRESHOLD", "3.0"))
 MIN_MARKET_BREADTH    = float(os.getenv("MIN_MARKET_BREADTH",  "45"))
 
 # ── Dynamic Exit Management ───────────────────────────────────────────────────
-# FIX [F29-PENDING]: Ahmed confirm: extend to 21? Backtest shows 10d kills 54% of trades.
-TIME_STOP_DAYS          = int(os.getenv("TIME_STOP_DAYS",           "10"))  # TODO: Ahmed to set to 21
+# FIX [F29]: Ahmed confirmed Apr 12 20:56 ET — extended from 10 → 21 days
+# Backtest: 10d killed 54% of trades at -3.24% avg; 42d avg = +15.82%
+TIME_STOP_DAYS          = int(os.getenv("TIME_STOP_DAYS",           "21"))  # confirmed by Ahmed
 
 # FIX [F38]: DTE 1-day gap — submissions validated at DTE≥22 to guarantee ≥21 at next-morning execution
 MIN_DTE_AT_SUBMISSION   = int(os.getenv("MIN_DTE_AT_SUBMISSION",    "22"))  # +1 buffer for overnight gap
