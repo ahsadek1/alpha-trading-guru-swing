@@ -168,6 +168,28 @@ def conviction_size_multiplier(score: int) -> float:
     return 0.80
 
 
+def _get_alpaca_live_position_count() -> int:
+    """
+    FIX [F27]: Query Alpaca for live position count across ALL systems on this account.
+    Returns 0 on any error (fail-open on position count — conservative: use DB count as floor).
+    """
+    try:
+        resp = _req.get(
+            f"{ALPACA_BASE}/v2/positions",
+            headers=_HEADERS,
+            timeout=5,
+        )
+        if resp.status_code == 200:
+            positions = resp.json()
+            count = len(positions) if isinstance(positions, list) else 0
+            log.debug("Alpaca live position count (cross-system): %d", count)
+            return count
+    except Exception as e:
+        log.debug("Alpaca position count check failed (using DB): %s", e)
+    return 0
+
+
+
 def can_open_position(symbol: Optional[str] = None, sector: Optional[str] = None) -> Tuple[bool, str]:
     """
     Validate position-count, sector-concentration, and correlation limits.
@@ -181,8 +203,17 @@ def can_open_position(symbol: Optional[str] = None, sector: Optional[str] = None
     """
     open_pos = get_open_positions()
 
-    if len(open_pos) >= MAX_POSITIONS:
-        return False, f"Max positions reached ({len(open_pos)}/{MAX_POSITIONS})"
+    # FIX [F27]: Cross-system position check — query Alpaca directly
+    # Both ATG Swing and Nexus Alpha share the same Alpaca paper account.
+    # DB-only check misses positions opened by other systems.
+    alpaca_position_count = _get_alpaca_live_position_count()
+    cross_system_count = max(len(open_pos), alpaca_position_count)
+
+    if cross_system_count >= MAX_POSITIONS:
+        return False, (
+            f"Position cap reached: DB={len(open_pos)} Alpaca={alpaca_position_count} "
+            f"max={MAX_POSITIONS} (cross-system check)"
+        )
 
     if sector:
         sector_count = sum(1 for p in open_pos if p.get("sector") == sector)
