@@ -20,7 +20,9 @@ DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 DEEPSEEK_URL     = "https://api.deepseek.com/v1/chat/completions"
 TELEGRAM_TOKEN   = os.getenv("ATG_TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("ATG_TELEGRAM_CHAT_ID", "8573754783")
+# FIX [F33]: Token never concatenated into logged strings — use _SAFE_API_PREFIX in logs
 TELEGRAM_API     = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
+_SAFE_API_PREFIX = "https://api.telegram.org/bot[REDACTED]"  # use in logs, never TELEGRAM_API
 
 _histories: dict = {}
 MAX_TURNS = 8
