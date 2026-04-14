@@ -329,6 +329,22 @@ async def get_stats() -> dict:
     return {**stats, "best_setup": best, "phase": orchestrator.phase}
 
 
+
+@app.post("/halt")
+async def halt_svc():
+    import os as _o; _o.environ["ATG_SWING_HALTED"]="true"
+    try:
+        import requests as _r
+        _r.post(_o.getenv("CAPITAL_ROUTER_URL","https://capital-router-production.up.railway.app")+"/halt",
+                json={"reason":"ATG_SWING: MANUAL_HALT"}, timeout=5)
+    except: pass
+    return {"halted":True}
+
+@app.post("/resume")
+async def resume_svc():
+    import os as _o; _o.environ.pop("ATG_SWING_HALTED",None)
+    return {"resumed":True}
+
 if __name__ == "__main__":
     import uvicorn
     import os

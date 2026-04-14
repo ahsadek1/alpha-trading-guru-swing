@@ -79,13 +79,17 @@ def _alpaca_get(path: str) -> dict:
     Raises:
         requests.HTTPError on non-2xx response.
     """
-    r = requests.get(
-        f"{ALPACA_BASE_URL}{path}",
-        headers=_HEADERS,
-        timeout=15,
-    )
-    r.raise_for_status()
-    return r.json()
+    import time as _t
+    last_exc = None
+    for attempt in range(3):
+        try:
+            r = requests.get(f"{ALPACA_BASE_URL}{path}", headers=_HEADERS, timeout=15)
+            r.raise_for_status()
+            return r.json()
+        except requests.RequestException as e:
+            last_exc = e
+            if attempt < 2: _t.sleep(2**attempt)
+    raise last_exc
 
 
 def _alpaca_post(path: str, body: dict) -> dict:
@@ -102,14 +106,17 @@ def _alpaca_post(path: str, body: dict) -> dict:
     Raises:
         requests.HTTPError on non-2xx response.
     """
-    r = requests.post(
-        f"{ALPACA_BASE_URL}{path}",
-        headers=_HEADERS,
-        json=body,
-        timeout=15,
-    )
-    r.raise_for_status()
-    return r.json()
+    import time as _t
+    last_exc = None
+    for attempt in range(3):
+        try:
+            r = requests.post(f"{ALPACA_BASE_URL}{path}", headers=_HEADERS, json=body, timeout=15)
+            r.raise_for_status()
+            return r.json()
+        except requests.RequestException as e:
+            last_exc = e
+            if attempt < 2: _t.sleep(2**attempt)
+    raise last_exc
 
 
 def get_current_price(symbol: str) -> Optional[float]:
