@@ -37,7 +37,7 @@ from config.settings import DEEPSEEK_API_KEY, GEMINI_API_KEY, OPENAI_API_KEY
 log = logging.getLogger(__name__)
 
 DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions"
-GEMINI_URL   = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+GEMINI_URL   = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
 OPENAI_URL   = "https://api.openai.com/v1/chat/completions"
 
 TIMEOUT_S   = 20
