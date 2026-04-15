@@ -153,8 +153,17 @@ def _refresh_cache() -> None:
 
         # Use total universe size as denominator so persistent fetch failures
         # don't inflate the breadth reading.
+        # EXCEPTION: if ALL tickers failed (data outage), use neutral 60% default
+        # rather than falsely reporting 0% and closing the regime gate.
         total = len(breadth_universe)
-        _cache["market_breadth"] = (above_50ma / total) * 100.0
+        if checked == 0 and failed == total:
+            log.warning(
+                "Breadth: ALL %d tickers failed to fetch — data outage, using neutral 60%% default",
+                total,
+            )
+            _cache["market_breadth"] = 60.0
+        else:
+            _cache["market_breadth"] = (above_50ma / total) * 100.0
         if failed > 0:
             log.info("Breadth: %d/%d tickers fetched (%d failed — counted as below MA)",
                      checked, total, failed)
