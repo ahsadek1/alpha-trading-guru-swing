@@ -41,7 +41,7 @@ GEMINI_URL   = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2
 OPENAI_URL   = "https://api.openai.com/v1/chat/completions"
 
 TIMEOUT_S   = 20
-MAX_TOKENS  = 400
+MAX_TOKENS  = 2048
 MIN_POSITION_USD = 200.0   # INV-6: skip trade if sizing falls below this
 
 # INV-5: Exit reason weights for bandit update (used by trade_executor)
@@ -181,7 +181,7 @@ def _call_gemini(prompt: str) -> dict:
         resp = requests.post(
             f"{GEMINI_URL}?key={GEMINI_API_KEY}",
             headers={"Content-Type": "application/json"},
-            json={"contents": [{"parts": [{"text": prompt}]}],
+            json={"contents": [{"parts": [{"text": "IMPORTANT: Reply with ONLY a single compact JSON line, no markdown, no code fences. Format: {\"conviction\":\"HIGH|MODERATE|LOW\",\"proceed\":true,\"thesis\":\"brief\",\"key_risk\":\"brief\"}\n\n" + prompt}]}],
                   "generationConfig": {"maxOutputTokens": MAX_TOKENS, "temperature": 0.1}},
             timeout=TIMEOUT_S,
         )
