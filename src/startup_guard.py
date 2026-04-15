@@ -55,7 +55,7 @@ def _test_gemini(key: str) -> tuple:
     try:
         payload = json.dumps({"contents": [{"parts": [{"text": "ping"}]}], "generationConfig": {"maxOutputTokens": 1}}).encode()
         req = urllib.request.Request(
-            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={key}",
+            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={key}",
             data=payload,
             headers={"Content-Type": "application/json"}
         )

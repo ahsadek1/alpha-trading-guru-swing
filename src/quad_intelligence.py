@@ -41,7 +41,7 @@ GEMINI_URL   = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2
 OPENAI_URL   = "https://api.openai.com/v1/chat/completions"
 
 TIMEOUT_S   = 20
-MAX_TOKENS  = 200
+MAX_TOKENS  = 400
 MIN_POSITION_USD = 200.0   # INV-6: skip trade if sizing falls below this
 
 # INV-5: Exit reason weights for bandit update (used by trade_executor)
