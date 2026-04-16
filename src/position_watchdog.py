@@ -174,17 +174,71 @@ def _alpaca_post(path: str, payload: dict):
         return None
 
 
+def _get_underlying(osi_symbol: str) -> str:
+    """Extract underlying ticker from OSI symbol. E.g. NVDA260529C00190000 → NVDA."""
+    import re
+    m = re.match(r"^([A-Z]+)\d{6}[CP]\d{8}$", osi_symbol.upper())
+    return m.group(1) if m else osi_symbol[:4]
+
+
+def _close_short_legs_for_underlying(underlying: str) -> list:
+    """
+    Close any SHORT option positions on the same underlying before closing the long leg.
+    Prevents 'uncovered option contracts' rejection from Alpaca on spread positions.
+    Returns list of OSI symbols successfully closed.
+    """
+    import urllib.parse
+    positions = _alpaca_get("/v2/positions")
+    if not positions:
+        return []
+    closed = []
+    for pos in positions:
+        sym  = pos.get("symbol", "").upper()
+        side = pos.get("side", "").lower()
+        qty  = float(pos.get("qty", 0))
+        if _get_underlying(sym) != underlying.upper():
+            continue
+        if len(sym) < 10 or side != "short":
+            continue
+        encoded = urllib.parse.quote(sym, safe="")
+        log.info("Spread-close: buy_to_close short leg %s before closing long", sym)
+        result = _alpaca_delete(f"/v2/positions/{encoded}")
+        if result is not None:
+            closed.append(sym)
+            continue
+        order = _alpaca_post("/v2/orders", {
+            "symbol": sym, "qty": str(int(abs(qty))), "side": "buy",
+            "type": "market", "time_in_force": "day",
+            "position_intent": "buy_to_close",
+        })
+        if order and order.get("id"):
+            closed.append(sym)
+        else:
+            log.error("Failed to close spread short leg %s — manual intervention needed", sym)
+    return closed
+
+
 def _close_option_position(osi_symbol: str, underlying: str, position_side: str = "long") -> bool:
     """
     Close an options position by its OSI symbol.
     Strategy:
+      0. If closing a LONG leg, first close any SHORT legs on the same underlying
+         (spread short-leg-first protocol — prevents 'uncovered option contracts' rejection)
       1. Try DELETE /v2/positions/{osi_symbol} (standard close)
-      2. If that fails (e.g. Alpaca rejects as uncovered), place explicit
-         sell_to_close (long) or buy_to_close (short) market order
+      2. If that fails, place explicit sell_to_close / buy_to_close market order
       3. Last resort: DELETE /v2/positions/{underlying}
     Returns True if any attempt succeeded.
     """
     import urllib.parse
+
+    if position_side == "long":
+        short_legs_closed = _close_short_legs_for_underlying(underlying)
+        if short_legs_closed:
+            log.info("Spread-close: closed %d short leg(s) for %s before closing long",
+                     len(short_legs_closed), underlying)
+            import time as _time
+            _time.sleep(1)
+
     encoded = urllib.parse.quote(osi_symbol, safe="")
 
     # Attempt 1: standard DELETE
