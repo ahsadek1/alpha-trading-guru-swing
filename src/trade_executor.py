@@ -44,6 +44,7 @@ from config.settings import (
 )
 from src.database import (
     get_open_positions,
+    mark_position_closing,
     record_position_open,
     record_position_close,
     record_bandit_outcome,
@@ -450,6 +451,22 @@ def _close_position(
     entry_date  = datetime.fromisoformat(pos["entry_date"])
     hold_days   = (datetime.now(ET).date() - entry_date.date()).days
 
+    # FIX (2026-04-27): Atomic claim — mark CLOSING before the sell order fires.
+    # Prevents the position monitor and watchdog from both closing the same position
+    # (the 30s fill-poll window was wide enough for a duplicate sell to fire).
+    # The first caller wins; the second sees status != OPEN and raises.
+    if not mark_position_closing(pos["id"], exit_reason):
+        log.warning(
+            "_close_position: %s pos_id=%d already CLOSING/CLOSED — duplicate close blocked",
+            symbol, pos["id"],
+        )
+        return {
+            "status":      "SKIPPED",
+            "symbol":      symbol,
+            "exit_reason": exit_reason,
+            "detail":      "duplicate_close_blocked",
+        }
+
     try:
         order      = _place_sell(symbol, shares)
         # FIX [F5]: Poll for actual fill price instead of using pre-sell current_price
@@ -653,7 +670,9 @@ def monitor_positions(bandit) -> List[dict]:
                 shares_to_close=shares_rem,
                 bandit=bandit,
             )
-            events.append(result)
+            # Only append real closes; skip duplicate-blocked events
+            if result.get("status") != "SKIPPED":
+                events.append(result)
 
     return events
 

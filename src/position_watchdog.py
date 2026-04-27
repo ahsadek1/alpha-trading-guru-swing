@@ -391,6 +391,28 @@ def _check_and_enforce():
             if unreal_plpc > -STOP_LOSS_PCT:
                 continue
 
+            # FIX (2026-04-27): Cross-check DB before firing a sell.
+            # If monitor_positions already claimed the position (status=CLOSING/CLOSED),
+            # skip — prevents duplicate sell that created a naked short on GOOGL.
+            try:
+                from src.database import get_connection as _get_conn
+                _conn = _get_conn()
+                _row = _conn.execute(
+                    "SELECT status FROM swing_positions "
+                    "WHERE symbol=? AND status NOT IN ('CLOSED','CLOSING','VOIDED') "
+                    "LIMIT 1",
+                    (symbol,),
+                ).fetchone()
+                _conn.close()
+                if _row is None:
+                    log.info(
+                        "WATCHDOG FALLBACK: %s already CLOSED/CLOSING in DB — skipping sell",
+                        symbol,
+                    )
+                    continue
+            except Exception as _db_err:
+                log.warning("WATCHDOG DB cross-check failed for %s: %s", symbol, _db_err)
+
             log.warning(
                 "WATCHDOG FALLBACK: %s unrealized loss %.2f%% exceeds %.1f%% — FORCE CLOSING",
                 symbol, unreal_plpc, STOP_LOSS_PCT,

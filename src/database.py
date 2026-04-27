@@ -178,6 +178,28 @@ def record_position_open(pos: dict) -> int:
     return pos_id
 
 
+def mark_position_closing(pos_id: int, exit_reason: str) -> bool:
+    """
+    Atomically mark a position as CLOSING before the sell order fires.
+
+    Returns True if the position was OPEN and successfully claimed.
+    Returns False if already CLOSING or CLOSED (duplicate-close guard).
+
+    FIX (2026-04-27): Prevents the monitor + watchdog from both firing sells
+    on the same position. The first caller wins; the second sees CLOSING and skips.
+    """
+    conn = get_connection()
+    cursor = conn.execute(
+        "UPDATE swing_positions SET status='CLOSING', exit_reason=? "
+        "WHERE id=? AND status='OPEN'",
+        (exit_reason, pos_id),
+    )
+    claimed = cursor.rowcount == 1
+    conn.commit()
+    conn.close()
+    return claimed
+
+
 def record_position_close(pos_id: int, exit_data: dict) -> None:
     """Mark a position as CLOSED with exit details."""
     conn = get_connection()
