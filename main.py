@@ -345,6 +345,30 @@ async def resume_svc():
     import os as _o; _o.environ.pop("ATG_SWING_HALTED",None)
     return {"resumed":True}
 
+@app.post("/bandit/reset")
+async def bandit_reset():
+    """
+    Reset the ATG swing bandit to fresh priors.
+    Wipes bandit_state and bandit_outcomes from the DB + reinitializes in-memory.
+    Use before paper trading to avoid stale flat-state contamination.
+    """
+    try:
+        import sqlite3, os as _o
+        from config.settings import DB_PATH
+        cleared = 0
+        if _o.path.exists(DB_PATH):
+            conn = sqlite3.connect(DB_PATH)
+            cur = conn.execute("DELETE FROM bandit_state")
+            cleared = cur.rowcount
+            conn.execute("DELETE FROM bandit_outcomes")
+            conn.commit()
+            conn.close()
+            log.info("[BANDIT RESET] Wiped bandit_state (%d rows) + bandit_outcomes from %s", cleared, DB_PATH)
+        return {"reset": True, "rows_cleared": cleared, "db_path": DB_PATH}
+    except Exception as exc:
+        log.error("[BANDIT RESET] Failed: %s", exc, exc_info=True)
+        return {"reset": False, "error": str(exc)}
+
 if __name__ == "__main__":
     import uvicorn
     import os
